@@ -20,7 +20,8 @@ Add this repo once for each app you want.
 Shōji:
 
 1. Add app, source URL `https://github.com/vardstein/shoji-releases`
-2. Turn on "Include prereleases" (builds from dev are pre-releases named `v0.1.0-dev.N`)
+2. Releases are named `v1.0.0`. For test builds too, turn on "Include prereleases" (builds from
+   dev are pre-releases named `v1.0.1-dev.N`)
 3. Under "Filter APKs by regular expression" put `^shoji-\d`
 4. Add, then Install. To make it the home screen, open Shōji settings and tap "Make Shōji the home
    screen"
@@ -46,6 +47,6 @@ talk to each other when both carry this certificate. Each release lists every AP
 
 ## How builds get here
 
-Shōji's CI hands each dev build over on a branch `incoming/v<version>`. The publish workflow checks
+Shōji's CI hands each dev build and each release from main over on a branch `incoming/v<version>`. The publish workflow checks
 both APKs' SHA-256, package, version and signing certificate against `cert-sha256.txt`, then makes
-the pre-release and deletes the branch.
+the release (a pre-release for `-dev` builds) and deletes the branch.

@@ -2,8 +2,9 @@
 # The private CI pushes one commit on top of main to a branch incoming/v<version>, with a deploy key
 # that can write to this repo only. Every release carries two APKs signed with one key: the launcher
 # (de.openjade.shoji) and the weather add-on (de.openjade.shoji.weather). This workflow checks both
-# (file names, SHA-256, package, version, signing certificate), makes the pre-release with this
-# repo's own github.token and deletes the branch. The release tag points at main, so the APKs never
+# (file names, SHA-256, package, version, signing certificate), makes the release with this
+# repo's own github.token (v<x.y.z>-dev.<n> as a pre-release, a plain v<x.y.z> as a full release)
+# and deletes the branch. The release tag points at main, so the APKs never
 # land in main's history. A failed check leaves the branch in place to look at.
 name: publish
 
@@ -32,7 +33,7 @@ jobs:
       - name: Check
         run: |
           tag=${GITHUB_REF_NAME#incoming/}
-          [[ $tag =~ ^v[0-9]+\.[0-9]+\.[0-9]+-dev\.[0-9]+$ ]] || { echo "not a release name: $tag" >&2; exit 1; }
+          [[ $tag =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-dev\.[0-9]+)?$ ]] || { echo "not a release name: $tag" >&2; exit 1; }
           name=${tag#v}
           app="shoji-$name.apk" wx="shoji-weather-$name.apk"
 
@@ -63,7 +64,8 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create "$OJ_TAG" -R "$GITHUB_REPOSITORY" --target main --prerelease \
+          pre=(); [[ $OJ_TAG == *-dev.* ]] && pre=(--prerelease)
+          gh release create "$OJ_TAG" -R "$GITHUB_REPOSITORY" --target main "${pre[@]}" \
             --title "Shōji ${OJ_TAG#v}" --notes-file incoming/notes.md \
             "incoming/$OJ_APP" "incoming/$OJ_APP.sha256" "incoming/$OJ_WX" "incoming/$OJ_WX.sha256"
           gh api -X DELETE "repos/$GITHUB_REPOSITORY/git/refs/heads/$GITHUB_REF_NAME"
