@@ -1,0 +1,69 @@
+# Publishes the builds that Shōji's private CI hands over (HONORPAD-14, after Kadode's OPENAUTO-56).
+# The private CI pushes one commit on top of main to a branch incoming/v<version>, with a deploy key
+# that can write to this repo only. Every release carries two APKs signed with one key: the launcher
+# (de.openjade.shoji) and the weather add-on (de.openjade.shoji.weather). This workflow checks both
+# (file names, SHA-256, package, version, signing certificate), makes the pre-release with this
+# repo's own github.token and deletes the branch. The release tag points at main, so the APKs never
+# land in main's history. A failed check leaves the branch in place to look at.
+name: publish
+
+on:
+  push:
+    branches: ['incoming/**']
+
+permissions:
+  contents: write
+
+concurrency:
+  group: publish-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    if: github.repository == 'vardstein/shoji-releases'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 2
+
+      - name: Check
+        run: |
+          tag=${GITHUB_REF_NAME#incoming/}
+          [[ $tag =~ ^v[0-9]+\.[0-9]+\.[0-9]+-dev\.[0-9]+$ ]] || { echo "not a release name: $tag" >&2; exit 1; }
+          name=${tag#v}
+          app="shoji-$name.apk" wx="shoji-weather-$name.apk"
+
+          changed=$(git diff --name-only HEAD^ HEAD | sort)
+          want=$(printf 'incoming/%s\n' "$app" "$app.sha256" "$wx" "$wx.sha256" notes.md | sort)
+          [ "$changed" = "$want" ] || { printf 'unexpected files:\n%s\n' "$changed" >&2; exit 1; }
+
+          cd incoming
+          bt=$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)
+          pin=$(tr -d ':\n' < ../cert-sha256.txt | tr 'A-F' 'a-f')
+          check() { # <apk> <package>
+            sha256sum -c "$1.sha256"
+            badge=$("$bt/aapt2" dump badging "$1" | head -1)
+            echo "$badge"
+            [[ $badge == *"name='$2'"* ]] || { echo "$1: wrong package" >&2; exit 1; }
+            [[ $badge == *"versionName='$name'"* ]] || { echo "$1: version is not $name" >&2; exit 1; }
+            got=$("$bt/apksigner" verify --print-certs "$1" | sed -n 's/.*certificate SHA-256 digest: //p' | head -1)
+            [ "$got" = "$pin" ] || { echo "$1: signed with $got, expected $pin" >&2; exit 1; }
+          }
+          check "$app" de.openjade.shoji
+          check "$wx" de.openjade.shoji.weather
+
+          echo "OJ_TAG=$tag" >> "$GITHUB_ENV"
+          echo "OJ_APP=$app" >> "$GITHUB_ENV"
+          echo "OJ_WX=$wx" >> "$GITHUB_ENV"
+
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$OJ_TAG" -R "$GITHUB_REPOSITORY" --target main --prerelease \
+            --title "Shōji ${OJ_TAG#v}" --notes-file incoming/notes.md \
+            "incoming/$OJ_APP" "incoming/$OJ_APP.sha256" "incoming/$OJ_WX" "incoming/$OJ_WX.sha256"
+          gh api -X DELETE "repos/$GITHUB_REPOSITORY/git/refs/heads/$GITHUB_REF_NAME"
